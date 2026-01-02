@@ -1,19 +1,10 @@
-# sinergivest_botves_stateful.py
-"""
-BotVes - perbaikan percakapan:
-- Stateful conversation: simpan nama, horizon, jenis instrumen, budget, risk_pref
-- Intent handling yang lebih deterministik & to-the-point
-- Parse budget (format '1,2 juta', '1200000', '1.2m', '1 juta', '500rb')
-- Jika budget ada => rekomendasi saham sesuai preferensi (aggressive/conservative/balanced)
-- Mendukung upload file (.csv / .xls / .xlsx) & 'analisis file' command
-- Responses edukatif + safety disclaimers
-"""
+# sinergivest_app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import re
 from datetime import datetime
-from scipy.stats import norm, skew, kurtosis
+import plotly.graph_objects as go
 
 # optional yfinance
 try:
@@ -22,373 +13,528 @@ try:
 except Exception:
     HAS_YFINANCE = False
 
-st.set_page_config(page_title="SinergiVest — BotVes (stateful)", layout="wide")
+# page config
+st.set_page_config(page_title="SinergiVest", layout="wide")
 
-# --- minimal style
+# -----------------------------
+# CSS styling (header, oval buttons, chat bubbles)
+# -----------------------------
 st.markdown("""
 <style>
-.user { background:#6b6b6b; color:white; padding:10px; border-radius:8px; margin:8px 0; text-align:right; }
-.bot { background:#eef7ff; color:#000; padding:10px; border-radius:8px; margin:8px 0; text-align:left; }
-.small { font-size:0.85rem; color:#666; }
+/* Header center */
+.header { text-align:center; margin-bottom: 20px; }
+.header h1 { font-size: 50px; margin: 0; color: #ffffff; }
+.header p { margin: 0 0 30px 0; color: #cccccc; }
+
+/* Carousel boxes */
+.carousel-box {
+  background: #111217;
+  border-radius: 12px;
+  padding: 18px;
+  min-height: 260px;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+}
+
+/* Oval buttons */
+.btn-oval > button {
+  border-radius: 50px !important;
+  height: 56px !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  padding: 0 26px !important;
+}
+.btn-green > button { background: #2ecc71 !important; color: #fff !important; border: none !important; }
+.btn-blue > button { background: #0077be !important; color: #fff !important; border: none !important; }
+.btn-white > button { background: #ffffff !important; color: #000000 !important; border: 1px solid #cccccc !important; }
+
+/* Tombol khusus */
+button.start-bot { background-color: #2ecc71 !important; color: white !important; border-radius: 50px !important; }
+button.login { background-color: #0077be !important; color: white !important; border-radius: 50px !important; }
+button.nav { background-color: white !important; color: black !important; border: 1px solid gray !important; border-radius: 50px !important; }
+
+/* Override for all buttons to ensure oval shape */
+button {
+  border-radius: 50px !important;
+}
+
+/* Chat bubbles */
+.user { background:#6b6b6b; color:white; padding:10px; border-radius:10px; margin:8px 0; text-align:right; }
+.bot  { background:#eef7ff; color:#000; padding:10px; border-radius:10px; margin:8px 0; text-align:left; }
+
+/* Responsive tweaks */
+@media (max-width: 800px) {
+  .header h1 { font-size: 36px; }
+  .carousel-box { min-height: 220px; padding:12px; }
+  .user, .bot { padding: 8px; font-size: 14px; }
+}
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------------
-# Session state init (conversation slots)
-# -------------------------
-if "page" not in st.session_state: st.session_state.page = "home"
-if "chat_history" not in st.session_state: st.session_state.chat_history = []
-if "uploaded_df" not in st.session_state: st.session_state.uploaded_df = None
+# -----------------------------
+# Session state defaults
+# -----------------------------
+if "page" not in st.session_state:
+    st.session_state.page = "home"   # home / chat / login
+if "stock_idx" not in st.session_state:
+    st.session_state.stock_idx = 0
+if "edu_idx" not in st.session_state:
+    st.session_state.edu_idx = 0
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "uploaded_df" not in st.session_state:
+    st.session_state.uploaded_df = None
 if "user_profile" not in st.session_state:
     st.session_state.user_profile = {
-        "name": None,
-        "age": None,
-        "horizon_years": None,
-        "instruments": [],     # e.g. ['saham','reksa dana']
-        "risk_pref": None,     # 'conservative'|'balanced'|'aggressive'
-        "budget": None,        # in IDR integer
-        "expecting_budget": False,
-        "expecting_horizon": False
+        "name": None, "horizon_years": None, "instruments": [], "risk_pref": None, "budget": None, "expecting_budget": False
     }
-# cache for fetched series
-if "last_stock_cache" not in st.session_state: st.session_state.last_stock_cache = {}
+# simple cache for fetched series
+if "stock_cache" not in st.session_state:
+    st.session_state.stock_cache = {}
 
-# sample tickers
-TICKERS = ["BBCA.JK","BBRI.JK","TLKM.JK","ASII.JK","BMRI.JK","GOTO.JK","UNVR.JK","ICBP.JK","AMRT.JK","BBNI.JK"]
+# sample tickers & OJK videos (YouTube links)
+TICKERS = [
+    "BBCA.JK", "BBRI.JK", "TLKM.JK", "ASII.JK", "BMRI.JK", "UNTR.JK", "GOTO.JK", "INDF.JK", "ICBP.JK", "AMRT.JK",
+    "BBNI.JK", "ANTM.JK", "CPIN.JK", "JSMR.JK", "KLBF.JK", "MDKA.JK", "PGAS.JK", "PTBA.JK", "SMGR.JK", "UNVR.JK"
+]
+TICKER_NAMES = {
+    "BBCA.JK": "Bank Central Asia",
+    "BBRI.JK": "Bank Rakyat Indonesia",
+    "TLKM.JK": "Telkom Indonesia",
+    "ASII.JK": "Astra International",
+    "BMRI.JK": "Bank Mandiri",
+    "UNTR.JK": "United Tractors",
+    "GOTO.JK": "GoTo Gojek Tokopedia",
+    "INDF.JK": "Indofood Sukses Makmur",
+    "ICBP.JK": "Indofood CBP Sukses Makmur",
+    "AMRT.JK": "Sumber Alfaria Trijaya",
+    "BBNI.JK": "Bank Negara Indonesia",
+    "ANTM.JK": "Aneka Tambang",
+    "CPIN.JK": "Charoen Pokphand Indonesia",
+    "JSMR.JK": "Jasa Marga",
+    "KLBF.JK": "Kalbe Farma",
+    "MDKA.JK": "Merck Sharp & Dohme Indonesia",
+    "PGAS.JK": "Perusahaan Gas Negara",
+    "PTBA.JK": "Bukit Asam",
+    "SMGR.JK": "Semen Indonesia",
+    "UNVR.JK": "Unilever Indonesia"
+}
+EDU_VIDEOS = [
+    {"title":"Digital Finance Literacy - OJK","url":"https://www.youtube.com/watch?v=GFgbxJyCSmE"},
+    {"title":"Cerdas Berinvestasi - OJK","url":"https://www.youtube.com/watch?v=Is3BfJN3bp0"},
+    {"title":"Bijak Berinvestasi - OJK","url":"https://www.youtube.com/watch?v=FcMG-ZMQP1g"}
+]
 
-# -------------------------
-# Helpers
-# -------------------------
-def parse_budget(text: str):
-    """Extract an integer budget in IDR from free text (Indonesian forms).
-    Recognizes: '1,2 juta', '1.2 juta', '1200000', '1 juta', '500rb', '500 ribu'
-    Returns integer or None.
-    """
-    if not text:
-        return None
-    t = text.lower()
-    # normalize separators
-    t = t.replace('.', '').replace(' ', '')
-    # search pattern like 1,2juta or 1200000
-    m = re.search(r'([\d,]+)(juta|jt|ribu|rb|k|m)?', t)
-    if not m:
-        return None
-    num = m.group(1).replace(',','')
-    unit = m.group(2)
-    try:
-        val = float(num)
-    except:
-        return None
-    if unit in ('juta','jt'):
-        return int(val * 1_000_000)
-    if unit in ('ribu','rb','k'):
-        return int(val * 1_000)
-    if unit == 'm':  # treat m as million
-        return int(val * 1_000_000)
-    # no unit: interpret heuristically
-    if val < 1000:  # likely user typed '1' meaning 1 juta
-        return int(val * 1_000_000)
-    return int(val)
+# List of Top 20 Blue Chip Stocks
+stocks = ["BBCA.JK", "BBRI.JK", "TLKM.JK", "BMRI.JK", "ASII.JK", "UNTR.JK", "GOTO.JK", "UNVR.JK", "ICBP.JK", "ADRO.JK", "BBNI.JK", "PGAS.JK", "CPIN.JK", "KLBF.JK", "ANTM.JK", "PTBA.JK", "SMGR.JK", "INDF.JK", "AMRT.JK", "BRIS.JK"]
 
+# Dictionary mapping ticker to company name
+stock_names = {
+    "BBCA.JK": "Bank Central Asia",
+    "BBRI.JK": "Bank Rakyat Indonesia",
+    "TLKM.JK": "Telkom Indonesia",
+    "BMRI.JK": "Bank Mandiri",
+    "ASII.JK": "Astra International",
+    "UNTR.JK": "United Tractors",
+    "GOTO.JK": "Gojek Tokopedia",
+    "UNVR.JK": "Unilever Indonesia",
+    "ICBP.JK": "Indofood CBP",
+    "ADRO.JK": "Adaro Energy",
+    "BBNI.JK": "Bank Negara Indonesia",
+    "PGAS.JK": "Perusahaan Gas Negara",
+    "CPIN.JK": "Charoen Pokphand Indonesia",
+    "KLBF.JK": "Kalbe Farma",
+    "ANTM.JK": "Aneka Tambang",
+    "PTBA.JK": "Bukit Asam",
+    "SMGR.JK": "Semen Indonesia",
+    "INDF.JK": "Indofood Sukses Makmur",
+    "AMRT.JK": "Alfamart",
+    "BRIS.JK": "Bank Syariah Indonesia"
+}
+
+# -----------------------------
+# Utility: get stock series (1 month, daily) with fallback
+# -----------------------------
 @st.cache_data(ttl=3600)
-def fetch_close_series(ticker: str, period="1mo", interval="1d"):
-    """Return close price series indexed by date (datetime.date). fallback to cached or synthetic."""
+def get_stock_series(ticker, period="1mo", interval="1d"):
     t = ticker.upper()
+    # try yfinance
     if HAS_YFINANCE:
         try:
             df = yf.download(t, period=period, interval=interval, progress=False, auto_adjust=True)
-            if df is not None and not df.empty and "Close" in df.columns:
-                s = df["Close"].copy()
-                s.index = pd.to_datetime(s.index).date
-                st.session_state.last_stock_cache[t] = s
+            if df is not None and not df.empty:
+                # Handle MultiIndex columns if present
+                if isinstance(df.columns, pd.MultiIndex):
+                    # For single ticker, access the first level
+                    close_col = ("Close", t) if ("Close", t) in df.columns else "Close"
+                    if close_col in df.columns:
+                        s = df[close_col].copy()
+                    else:
+                        # Fallback to first available Close
+                        s = df.xs("Close", axis=1, level=0).iloc[:, 0].copy()
+                else:
+                    if "Close" in df.columns:
+                        s = df["Close"].copy()
+                    else:
+                        raise ValueError("No 'Close' column found")
+                # Ensure float32 for accuracy
+                s = s.astype(np.float32)
+                # keep full datetime index for better plotly x-axis
+                s.index = pd.to_datetime(s.index)
                 return s
-        except Exception:
-            pass
-    # fallback cached
-    if t in st.session_state.last_stock_cache:
-        return st.session_state.last_stock_cache[t]
-    # synthetic realistic
-    dates = pd.bdate_range(end=datetime.now().date(), periods=30)
-    base = 1000 + np.cumsum(np.random.normal(0, 10, len(dates)))
-    s = pd.Series(base, index=dates.date)
-    st.session_state.last_stock_cache[t] = s
+        except Exception as e:
+            st.write(f"Error fetching {t}: {e}")
+    # fallback: synthetic business days series
+    rng = pd.bdate_range(end=pd.Timestamp.now(), periods=30)
+    base = 1000 + np.cumsum(np.random.normal(0, 10, len(rng)))
+    s = pd.Series(base, index=rng, dtype=np.float32)
     return s
 
-def compute_metrics(series: pd.Series):
-    if series is None or len(series) < 2:
-        return {}
-    ln = np.log(series / series.shift(1)).dropna()
+# -----------------------------
+# Small analytics helpers (log-return & Cornish-Fisher VaR)
+# -----------------------------
+from scipy.stats import norm, skew, kurtosis
+
+def compute_stats(series):
+    if series is None or len(series) < 3:
+        return None
+    # Handle if series is DataFrame or 2D array
+    if isinstance(series, pd.DataFrame):
+        series = series.squeeze()  # Convert to Series if single column
+    if hasattr(series, 'shape') and len(series.shape) > 1:
+        series = series.flatten()
+    s = pd.Series(series).astype(float)
+    ln = np.log(s / s.shift(1)).dropna()
+    if ln.empty:
+        return None
     mu = ln.mean()
     sigma = ln.std(ddof=0)
     S = skew(ln)
-    K_excess = kurtosis(ln, fisher=True)
+    K = kurtosis(ln, fisher=True)
     z = norm.ppf(0.95)
-    z_cf = z + (1/6)*(z**2 - 1)*S + (1/24)*(z**3 - 3*z)*K_excess - (1/36)*(2*z**3 - 5*z)*(S**2)
-    var95 = float(-(mu + sigma * z))
-    var95_cf = float(-(mu + sigma * z_cf))
-    return {
-        "last": float(series.iloc[-1]),
-        "period_return": float(np.exp(ln.sum()) - 1),
-        "mu": float(mu), "sigma": float(sigma),
-        "skew": float(S), "kurtosis_excess": float(K_excess),
-        "VaR95_log": var95, "VaR95_CF_log": var95_cf
-    }
+    z_cf = z + (1/6)*(z**2 - 1)*S + (1/24)*(z**3 - 3*z)*K - (1/36)*(2*z**3 - 5*z)*(S**2)
+    # VaR on log-return scale; convert to price approximate (1-day)
+    var95 = -(mu + sigma * z)
+    var95_cf = -(mu + sigma * z_cf)
+    return {"mu":mu, "sigma":sigma, "skew":S, "kurtosis_excess":K, "VaR95":var95, "VaR95_CF":var95_cf, "last": float(s.iloc[-1])}
 
-def recommend_stocks_for_budget(tickers, budget:int, approach="balanced", top_n=3):
+# -----------------------------
+# Conversational handler (simple, to-the-point)
+# -----------------------------
+def parse_budget(text):
+    if not text: return None
+    t = text.lower().replace(' ', '')
+    # Regex to capture number with optional decimal comma
+    m = re.search(r'([\d,]+)(juta|jt|ribu|rb|k|m|biliar)?', t)
+    if not m: return None
+    num_str = m.group(1)
+    # Replace comma with dot for decimal (Indonesian locale: comma is decimal separator)
+    num_str = num_str.replace(',', '.')
+    try:
+        val = float(num_str)
+    except:
+        return None
+    unit = m.group(2)
+    if unit in ('juta','jt','m'): return int(val * 1_000_000)
+    if unit in ('ribu','rb','k'): return int(val * 1_000)
+    if unit in ('biliar',): return int(val * 1_000_000_000)
+    # If no unit and val < 1000, assume juta
+    if val < 1000: return int(val * 1_000_000)
+    return int(val)
+
+def parse_risk_preference(text):
+    ml = text.lower()
+    if any(word in ml for word in ["untung tinggi", "agresif", "risiko tinggi", "return tinggi"]):
+        return "aggressive"
+    elif any(word in ml for word in ["aman", "konservatif", "rendah risiko", "stabil"]):
+        return "conservative"
+    else:
+        return "balanced"
+
+def recommend_for_budget(budget, approach="balanced", top_n=3):
     cand = []
-    for t in tickers:
-        s = fetch_close_series(t)
-        if s is None or len(s) < 6: continue
+    for t in TICKERS:
+        s = get_stock_series(t)
+        if s is None or len(s)<5: continue
         last = float(s.iloc[-1])
-        # allow recommending even if last > budget: propose fractional/alternatives? for now require last <= budget
-        if last > budget:
+        # Assume lot size 100 shares, skip if lot price > budget (strict budgeting)
+        lot_price = last * 100
+        if lot_price > budget:
             continue
-        m = compute_metrics(s)
-        if not m: continue
-        # score definitions
-        if approach == "aggressive":
-            score = m["period_return"]  # favor high return
-        elif approach == "conservative":
-            score = -m["sigma"]         # favor low volatility
+        stats = compute_stats(s)
+        if stats is None: continue
+        if approach=="aggressive":
+            score = stats["mu"]
+        elif approach=="conservative":
+            score = -stats["sigma"]
         else:
-            score = m["period_return"] / (m["sigma"] + 1e-9)  # balanced
-        cand.append({
-            "ticker": t, "last": last, "return": m["period_return"], "sigma": m["sigma"], "skew": m["skew"], "kurtosis_excess": m["kurtosis_excess"], "score": score
-        })
-    if not cand:
-        return []
+            score = stats["mu"] / (stats["sigma"] + 1e-9)
+        cand.append({"ticker":t, "last":last, "lot_price":lot_price, "return":stats["mu"], "sigma":stats["sigma"], "score":score})
+    if not cand: return []
     df = pd.DataFrame(cand).sort_values("score", ascending=False)
     return df.head(top_n).to_dict(orient="records")
 
-def analyze_uploaded_df(df: pd.DataFrame):
-    # same logic as earlier: look for ticker & qty
-    summary = {}
-    cols = [c.lower() for c in df.columns]
-    def col_like(sub):
-        for i,c in enumerate(cols):
-            if sub in c:
-                return df.columns[i]
-        return None
-    if col_like('ticker') and (col_like('qty') or col_like('quantity')):
-        ticker_col = col_like('ticker')
-        qty_col = col_like('qty') or col_like('quantity')
-        price_col = col_like('price') or col_like('close') or col_like('last')
-        if price_col:
-            df['value'] = df[qty_col] * df[price_col]
-        else:
-            prices = []
-            for t in df[ticker_col].astype(str):
-                s = fetch_close_series(t.strip()+('.JK' if not t.strip().upper().endswith('.JK') else ''))
-                prices.append(float(s.iloc[-1]) if s is not None and len(s)>0 else np.nan)
-            df['price_fetched'] = prices
-            df['value'] = df[qty_col] * df['price_fetched']
-        total = df['value'].sum()
-        df['alloc_pct'] = df['value'] / total * 100
-        summary['table'] = df
-        summary['total'] = float(total)
-        return summary
-    else:
-        numeric = df.select_dtypes(include='number')
-        summary['numeric_summary'] = numeric.describe().to_dict()
-        return summary
-
-# -------------------------
-# Conversational handler (stateful)
-# -------------------------
-def handle_user_message(msg: str):
-    msg = msg.strip()
-    if not msg:
-        return "Silakan ketik pertanyaan atau perintah (mis. 'saham apa', 'analisis file')."
-
-    lower = msg.lower()
-    profile = st.session_state.user_profile
-
-    # 1) name detection
-    m_name = re.search(r'\b(?:nama saya|nama ku|namaku|saya bernama|saya adalah)\s+([A-Za-z0-9\-_ ]{2,30})', lower)
-    if m_name:
-        name = m_name.group(1).strip().title()
-        profile['name'] = name
-        return f"Salam, {name}! Senang bertemu. Sebutkan tujuan investasi Anda (mis. dana pendidikan/jangka panjang) atau modal yang ingin diinvestasikan."
-
-    # 2) direct short "Nama ku Okta" or "aku Okta"
-    m_name2 = re.search(r'\b(?:aku|saya)\s+([A-Z][a-z]{1,20})\b', msg)
-    if m_name2 and not profile.get('name'):
-        # be conservative: ensure it's likely a name (start uppercase) - if not, ignore
-        candidate = m_name2.group(1).strip().title()
-        profile['name'] = candidate
-        return f"Senang bertemu, {candidate}! Untuk membantu, sebutkan tujuan & horizon atau modal investasi Anda."
-
-    # 3) horizon detection (jangka panjang / pendek)
-    if any(k in lower for k in ["jangka panjang","persiapan pendidikan","untuk pendidikan","long term","long-term","lama"]):
-        profile['horizon_years'] = profile.get('horizon_years') or 5
-        profile['instruments'] = list(set(profile.get('instruments',[]) + ['saham']))
-        # confirm
-        return "Terima kasih. Karena tujuan jangka panjang (pendidikan), saham dan reksa dana saham cocok; apakah Anda ingin rekomendasi saham konkret atau contoh alokasi?"
-
-    if any(k in lower for k in ["jangka pendek","short term","untuk liburan","sebulan","beberapa bulan"]):
-        profile['horizon_years'] = profile.get('horizon_years') or 1
-        return "Baik, horizon pendek. Rekomendasi sebaiknya konservatif (rekasa dana pasar uang / obligasi). Mau saya contohkan alokasi konservatif?"
-
-    # 4) instrument interest
-    if any(k in lower for k in ["saham","reksa dana","obligasi","sukuk"]):
-        # record which instruments mentioned
-        inst = []
-        if "saham" in lower: inst.append("saham")
-        if "reksa" in lower or "reksa dana" in lower: inst.append("reksa dana")
-        if "obligasi" in lower or "sukuk" in lower: inst.append("obligasi")
-        profile['instruments'] = list(set(profile.get('instruments',[]) + inst))
-        # if user only answered "saham" as reply to question, continue flow: ask budget or risk pref
-        if lower.strip() in ("saham","reksa dana","obligasi","saham saja"):
-            # prompt for budget
-            profile['expecting_budget'] = True
-            return "Baik, Anda tertarik pada saham. Berapa modal yang ingin Anda mulai (mis. '1,2 juta' atau '1200000')? Atau ketik 'tanpa modal' jika ingin simulasi saja."
-        # else acknowledge and continue
-        return f"Terima kasih. Saya catat minat Anda pada: {', '.join(profile['instruments'])}. Apakah Anda punya modal yang ingin dipakai sekarang?"
-
-    # 5) budget parsing (either user asked directly or in sentence)
-    budget_val = parse_budget(msg)
-    if budget_val:
-        profile['budget'] = budget_val
-        profile['expecting_budget'] = False
-        # if user previously asked for recommendations, handle immediately
-        # detect if they earlier asked "saham apa" etc by checking last messages
-        last_user_asked_rec = any("saham apa" in m.get('content','').lower() or "saham yang cocok" in m.get('content','').lower() for m in st.session_state.chat_history if m['role']=='user')
-        # determine risk pref if mentioned
-        if any(w in lower for w in ["aman","konservatif"]):
-            profile['risk_pref'] = "conservative"
-        elif any(w in lower for w in ["agresif","tinggi","besar"]):
-            profile['risk_pref'] = "aggressive"
-        else:
-            profile['risk_pref'] = profile.get('risk_pref') or "balanced"
-        # provide immediate recommendation if user asked earlier about saham
-        if last_user_asked_rec or 'saham' in profile.get('instruments',[]):
-            # choose approach
-            approach = profile['risk_pref'] or "balanced"
-            recs = recommend_stocks_for_budget(TICKERS, profile['budget'], approach=approach, top_n=3)
-            if recs:
-                lines = [f"Dengan modal Rp {profile['budget']:,} dan preferensi '{approach}', rekomendasi (edukatif):"]
-                for r in recs:
-                    lines.append(f"- {r['ticker']}: harga ~Rp {int(r['last']):,}, estimasi return (periode): {r['return']*100:.2f}% , volatilitas: {r['sigma']:.4f}")
-                lines.append("Catatan: ini panduan edukatif. Untuk return lebih tinggi, fokus pada saham growth/volume kecil (risiko lebih tinggi).")
-                return "\n".join(lines)
+def handle_message(msg):
+    if not msg or not msg.strip():
+        return "Tolong ketik pesan atau perintah (mis. 'saham apa yang cocok', '1,2 juta', atau 'BBCA')."
+    m = msg.strip()
+    ml = m.lower()
+    # name declaration
+    if any(p in ml for p in ["nama saya","namaku","aku adalah","saya nama","nama ku"]):
+        # ekstrak nama sederhana
+        name = re.sub(r'.*(nama saya|namaku|aku adalah|saya nama|nama ku)\s*','',ml,flags=re.I).strip().title()
+        if name:
+            st.session_state.user_profile["name"] = name
+            return f"Salam {name}! Sebutkan tujuan atau modal Anda untuk mulai."
+    # budget parse direct
+    b = parse_budget(m)
+    if b:
+        st.session_state.user_profile["budget"] = b
+        approach = parse_risk_preference(m)  # Extract from message
+        st.session_state.user_profile["risk_pref"] = approach
+        recs = recommend_for_budget(b, approach=approach, top_n=3)
+        if recs:
+            # Greeting & Confirmation
+            greetings = [
+                "Halo! Menarik sekali minat investasinya.",
+                "Hai! Bagus, kita mulai dengan modal yang jelas.",
+                "Salam! Siap membantu dengan dana tersebut.",
+                "Wow, semangat investasinya luar biasa!"
+            ]
+            greeting = np.random.choice(greetings)
+            response = f"{greeting} Dengan modal Rp {b:,} Anda, kita bisa eksplorasi opsi investasi yang sesuai. "
+            
+            # Strategy Analysis
+            if approach == "aggressive":
+                response += "Karena Anda mengejar return tinggi, kita fokus pada saham dengan potensi pertumbuhan besar, meski risiko lebih tinggi. "
+                target_desc = "return tinggi (di atas rata-rata)"
+            elif approach == "conservative":
+                response += "Untuk pendekatan aman, kita pilih saham dengan volatilitas rendah agar modal lebih stabil. "
+                target_desc = "stabilitas dan risiko rendah"
             else:
-                return f"Maaf, tidak menemukan saham top dengan harga <= Rp {profile['budget']:,}. Pertimbangkan reksa dana indeks atau strategi DCA (beli bertahap)."
-        # otherwise just confirm
-        return f"Catat: modal Anda Rp {profile['budget']:,}. Anda dapat menanyakan 'saham apa yang cocok' sekarang."
-
-    # 6) direct request: "saham apa" or "saham apa yang cocok"
-    if any(phrase in lower for phrase in ["saham apa", "saham yang cocok", "apa saham"]):
-        # if budget known, recommend immediately
-        if profile.get('budget'):
-            approach = "balanced"
-            if any(w in lower for w in ["return tinggi","high return","ingin return tinggi","agresif","besar keuntungan"]):
-                approach = "aggressive"
-            elif any(w in lower for w in ["aman","konservatif","amanlah"]):
-                approach = "conservative"
-            recs = recommend_stocks_for_budget(TICKERS, profile['budget'], approach=approach, top_n=3)
-            if recs:
-                lines = [f"Dengan modal Rp {profile['budget']:,} dan preferensi '{approach}', saya rekomendasikan:"]
-                for r in recs:
-                    lines.append(f"- {r['ticker']}: harga ~Rp {int(r['last']):,}, return est.: {r['return']*100:.2f}% , vol: {r['sigma']:.4f}")
-                lines.append("Ingat: rekomendasi ini edukatif. Untuk return tinggi, alokasikan porsi kecil ke saham berisiko; sisanya simpan di instrumen konservatif.")
-                return "\n".join(lines)
-            else:
-                return f"Saya tidak menemukan saham top yang harganya <= Rp {profile['budget']:,}. Anda ingin saya sarankan reksa dana yang cocok?"
-        # ask for budget
-        profile['expecting_budget'] = True
-        return "Berapa modal Anda untuk investasi (mis. '1,2 juta')? Dengan modal itu saya akan rekomendasikan saham yang cocok."
-
-    # 7) user asks about specific ticker (BBCA, TLKM etc)
-    m_t = re.search(r'\b([A-Za-z]{2,5}(?:\.JK)?)\b', msg)
-    if m_t:
-        tok = m_t.group(1).upper()
+                response += "Dengan pendekatan seimbang, kita imbangi antara return dan risiko untuk hasil optimal. "
+                target_desc = "keseimbangan return dan risiko"
+            response += f"Strategi ini cocok untuk target {target_desc} berdasarkan analisis historis. "
+            
+            # Stock Recommendations
+            response += "Berikut rekomendasi saham yang bisa dijangkau:\n"
+            for r in recs:
+                company = stock_names.get(r['ticker'], r['ticker'])
+                per_share = int(r['last'])
+                per_lot = int(r['lot_price'])
+                if approach == "aggressive":
+                    reason = f"karena memiliki return historis tinggi ({r['return']:.4f}) meski volatilitasnya ({r['sigma']:.4f}) cukup tinggi, cocok untuk target pertumbuhan cepat."
+                elif approach == "conservative":
+                    reason = f"karena volatilitasnya rendah ({r['sigma']:.4f}), sehingga risiko fluktuasi harga lebih kecil, ideal untuk investasi jangka panjang yang stabil."
+                else:
+                    reason = f"karena rasio return terhadap risiko ({r['score']:.4f}) optimal, memberikan keseimbangan yang baik antara pertumbuhan dan keamanan."
+                response += f"- {r['ticker']} ({company}): harga per lembar Rp {per_share:,}, per lot (100 lembar) Rp {per_lot:,}. {reason}\n"
+            
+            # Educational Disclaimer
+            response += "\nIni simulasi edukasi berdasarkan data historis, bukan nasihat keuangan. Selalu konsultasikan dengan ahli sebelum berinvestasi."
+            return response
+        return f"Baik, dengan modal Rp {b:,}, pertimbangkan reksa dana atau DCA untuk investasi jangka panjang. Saham satu lot mungkin terlalu mahal, tapi Anda bisa mulai bertahap."
+    # direct ask 'saham apa'
+    if "saham apa" in ml or "saham yang cocok" in ml:
+        if st.session_state.user_profile.get("budget"):
+            # call handle_message on budget number to reuse logic
+            return handle_message(str(st.session_state.user_profile["budget"]))
+        else:
+            st.session_state.user_profile["expecting_budget"] = True
+            return "Berapa modal Anda (mis. '1,2 juta') supaya saya rekomendasikan saham yang cocok?"
+    # ticker explicit
+    tmatch = re.search(r'\b([A-Za-z]{2,5}(?:\.JK)?)\b', m)
+    if tmatch:
+        tok = tmatch.group(1).upper()
         if not tok.endswith('.JK'):
             tok = tok + '.JK'
-        s = fetch_close_series(tok)
-        metrics = compute_metrics(s)
-        if not metrics:
-            return f"Data untuk {tok} tidak cukup untuk analisis."
+        s = get_stock_series(tok)
+        stats = compute_stats(s)
+        if stats is None:
+            return f"Maaf, data untuk {tok} tidak cukup untuk analisis saat ini. Coba saham lain atau periksa koneksi internet."
+        company = stock_names.get(tok, tok)
+        response = f"Untuk {company} ({tok}), harga terakhir adalah Rp {stats['last']:,.0f}. "
+        response += f"Volatilitas harian sekitar {stats['sigma']:.4f}, yang menunjukkan tingkat fluktuasi harga. "
+        response += f"VaR95 (Cornish-Fisher) adalah {stats['VaR95_CF']:.4f}, sebagai ukuran risiko potensial. "
+        response += "Ini adalah analisis edukatif berdasarkan data historis. Untuk investasi nyata, pertimbangkan faktor fundamental perusahaan dan kondisi pasar."
+        return response
+    # basic help
+    if any(x in ml for x in ["halo","hai","selamat","cara mulai","bagaimana mulai"]):
+        return ("Halo! Contoh perintah: 'Nama panggilan ...', 'Tujuan: pendidikan jangka panjang', 'saham apa yang cocok', "
+                "'1,2 juta' (untuk modal), atau sebutkan ticker mis. 'BBCA'.")
+    # fallback
+    return "Maaf saya belum paham. Coba: 'saham apa yang cocok dengan modal 1 juta' atau ketik ticker (mis. BBCA)."
+
+# -----------------------------
+# PAGES
+# -----------------------------
+def render_home():
+    # header center
+    st.markdown("<div class='header'><h1>SinergiVest</h1><p>Pendamping Investasi Inklusif</p></div>", unsafe_allow_html=True)
+
+    # two carousels side-by-side
+    left, right = st.columns(2, gap="large")
+    with left:
+        st.markdown("<div class='carousel-box'>", unsafe_allow_html=True)
+        stock_idx = st.session_state.stock_idx if "stock_idx" in st.session_state else 0
+        ticker = TICKERS[stock_idx]
+        company_name = TICKER_NAMES.get(ticker, ticker)
+        st.subheader(f"📈 Tren Harga {company_name} ({ticker})")
+        series = get_stock_series(ticker)
+        try:
+            fig = go.Figure(data=[go.Scatter(x=series.index, y=series.values, mode="lines", name=ticker)])
+            fig.update_layout(template="plotly_dark", height=300, margin=dict(t=30,l=10,r=10,b=10))
+            fig.update_xaxes(type='date', tickformat="%Y-%m-%d")
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.write("Gagal menampilkan grafik:", e)
+        # simple stat
+        stats = compute_stats(series)
+        if stats:
+            st.write(f"Harga terakhir: Rp {stats['last']:,.0f} • Volatilitas: {stats['sigma']:.4f}")
+            # Saran berdasarkan perbandingan dengan rata-rata 30 hari
+            if len(series) >= 30:
+                mean_30 = series.tail(30).mean()
+            else:
+                mean_30 = series.mean()
+            if stats['last'] < mean_30:
+                saran = "Buy"
+            elif stats['last'] > mean_30 * 1.05:  # Jika lebih dari 5% di atas rata-rata
+                saran = "Wait"
+            else:
+                saran = "Hold"
+            st.write(f"Saran: {saran}")
+            st.write("*Catatan: Ini analisis sederhana berdasarkan data historis. Bukan nasihat investasi formal. Konsultasikan ahli keuangan.*")
+        # navigation buttons
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown('<div class="btn-oval btn-white">', unsafe_allow_html=True)
+            if st.button("⟨ Prev Saham"):
+                st.session_state.stock_idx = (st.session_state.stock_idx - 1) % len(TICKERS)
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown('<div class="btn-oval btn-white">', unsafe_allow_html=True)
+            if st.button("Next Saham ⟩"):
+                st.session_state.stock_idx = (st.session_state.stock_idx + 1) % len(TICKERS)
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+        st.markdown("<div class='carousel-box'>", unsafe_allow_html=True)
+        st.subheader("🎥 Literasi & Edukasi (OJK)")
+        vid_idx = st.session_state.edu_idx if "edu_idx" in st.session_state else 0
+        video = EDU_VIDEOS[vid_idx]
+        # use try/except because some embed may not work in offline env
+        try:
+            st.video(video["url"])
+        except:
+            st.write("Video tidak dapat dimuat. Silakan buka:", video["url"])
+        st.write(f"Topik: {video['title']}")
+        st.write("Pelajari literasi keuangan dan investasi yang bijak dari OJK untuk pendidikan inklusif.")
+        col1, col2 = st.columns(2)
+        if col1.button("⟨ Prev Edu"):
+            st.session_state.edu_idx = (st.session_state.edu_idx - 1) % len(EDU_VIDEOS)
+        if col2.button("Next Edu ⟩"):
+            st.session_state.edu_idx = (st.session_state.edu_idx + 1) % len(EDU_VIDEOS)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # bottom oval buttons centered
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2:
+        b1, b2 = st.columns(2)
+        with b1:
+            st.markdown('<div class="btn-oval btn-green">', unsafe_allow_html=True)
+            if st.button("Mulai dengan BotVes"):
+                st.session_state.page = "chat"
+            st.markdown('</div>', unsafe_allow_html=True)
+        with b2:
+            st.markdown('<div class="btn-oval btn-blue">', unsafe_allow_html=True)
+            if st.button("Masuk / Daftar"):
+                st.session_state.page = "login"
+            st.markdown('</div>', unsafe_allow_html=True)
+
+def render_login():
+    st.markdown("<div style='text-align:center;'><h2>Masuk / Daftar</h2></div>", unsafe_allow_html=True)
+    with st.form("login_form"):
+        user = st.text_input("Email atau username")
+        pw = st.text_input("Password", type="password")
+        cap = st.text_input("Captcha (ketik 1234 untuk demo)")
+        submitted = st.form_submit_button("Masuk")
+        if submitted:
+            if not user or not pw:
+                st.error("Lengkapi username & password.")
+            elif cap.strip() != "1234":
+                st.error("Captcha salah (demo: 1234).")
+            else:
+                st.success("Login demo berhasil.")
+                st.session_state.user_profile["name"] = user
+                st.session_state.page = "chat"
+
+    if st.button("⟵ Kembali ke Beranda"):
+        st.session_state.page = "home"
+
+def render_chat():
+    st.markdown("<div style='text-align:center;'><h2>🤖 BotVes — Pendamping Investasi</h2></div>", unsafe_allow_html=True)
+    st.write("Catatan: ini fitur edukatif. Jangan gunakan sebagai nasihat formal.")
+    # show uploaded file area inside chat
+    uploaded = st.file_uploader("Unggah file portofolio (.csv/.xlsx) — opsional", type=['csv','xls','xlsx'])
+    if uploaded:
+        try:
+            if uploaded.name.lower().endswith('.csv'):
+                df = pd.read_csv(uploaded)
+            else:
+                df = pd.read_excel(uploaded)
+            st.session_state.uploaded_df = df
+            st.success(f"File {uploaded.name} disimpan di sesi.")
+            st.dataframe(df.head(8))
+        except Exception as e:
+            st.error("Gagal baca file: " + str(e))
+
+    # initial greeting once
+    if not st.session_state.chat_history:
+        st.session_state.chat_history.append({"role":"assistant","content":"Halo! Saya BotVes. Sebutkan tujuan atau modal Anda untuk mulai."})
+
+    # display chat bubbles
+    for m in st.session_state.chat_history:
+        if m["role"] == "user":
+            st.markdown(f"<div class='user'>{m['content']}</div>", unsafe_allow_html=True)
         else:
-            return (f"Ringkasan {tok}: Harga terakhir ~Rp {metrics['last']:,.0f}. "
-                    f"Perkiraan return periode: {metrics['period_return']*100:.2f}% , volatilitas (sigma): {metrics['sigma']:.4f}, "
-                    f"VaR95(CF,log): {metrics['VaR95_CF_log']:.4%}. (Ini informasi edukatif, bukan rekomendasi beli/jual.)")
+            st.markdown(f"<div class='bot'>{m['content']}</div>", unsafe_allow_html=True)
 
-    # 8) analyze uploaded file request
-    if any(k in lower for k in ["analisis file","analisis portofolio","analyze file","analyze portfolio"]):
-        if st.session_state.uploaded_df is None:
-            return "Saya tidak menemukan file yang diunggah. Silakan unggah file (.csv/.xls/.xlsx) di menu 'Upload & Analyze' atau uploader di halaman Chat."
-        summ = analyze_uploaded_df(st.session_state.uploaded_df)
-        if 'table' in summ:
-            total = summ['total']
-            return f"Saya menemukan file portofolio. Estimasi total nilai: Rp {total:,.0f}. Saya menampilkan ringkasan di halaman Upload & Analyze."
-        else:
-            return "File tidak berisi kolom Ticker/Qty. Saya sudah menampilkan ringkasan statistik numerik di halaman Upload & Analyze."
-
-    # 9) small talk / help
-    if any(w in lower for w in ["halo","hai","selamat","pagi","siang","sore"]):
-        return "Halo! Saya BotVes. Sebutkan tujuan investasi atau tanya 'saham apa yang cocok dengan modal X' atau unggah file portofolio dan ketik 'analisis file'."
-
-    if any(w in lower for w in ["cara mulai","bagaimana mulai","mulai investasi"]):
-        return ("Langkah singkat: 1) Tentukan tujuan & horizon; 2) Pilih profil risiko; 3) Mulai kecil & rutin (DCA); 4) Gunakan alokasi konservatif bila pemula. "
-                "Mau saya buat contoh alokasi untuk tujuan pendidikan jangka panjang? (ketik 'contoh alokasi')")
-
-    # 10) user gave modal words like 'modal 1,2 juta' embedded earlier but parse_budget may have failed; handle numbers like '1,2 juta' with comma removal earlier.
-    # Already handled by parse_budget at top.
-
-    # 11) fallback
-    return ("Maaf, saya belum paham. Coba: 'saham apa yang cocok dengan modal 1 juta', "
-            "'analisis file', atau tanyakan tentang ticker (mis. 'BBCA').")
-
-# -------------------------
-# UI layout & usage
-# -------------------------
-st.title("SinergiVest — BotVes (improved & stateful)")
-st.write("Catatan: ini alat edukatif. Jangan gunakan sebagai nasihat investasi formal.")
-
-# simple uploader
-uploaded = st.file_uploader("Unggah file portofolio (.csv/.xls/.xlsx) — opsional (Upload & Analyze)", type=['csv','xls','xlsx'])
-if uploaded:
-    try:
-        if uploaded.name.lower().endswith('.csv'):
-            dfu = pd.read_csv(uploaded)
-        else:
-            dfu = pd.read_excel(uploaded)
-        st.session_state.uploaded_df = dfu
-        st.success(f"File {uploaded.name} tersimpan di sesi.")
-        st.dataframe(dfu.head(10))
-    except Exception as e:
-        st.error("Gagal membaca file: " + str(e))
-
-st.markdown("---")
-# render chat history
-for m in st.session_state.chat_history:
-    if m['role']=='user':
-        st.markdown(f"<div class='user'>{m['content']}</div>", unsafe_allow_html=True)
+    # chat input: prefer chat_input if available, otherwise use text_input + button
+    if hasattr(st, "chat_input"):
+        user_msg = st.chat_input("Ketik pesan...")
+        if user_msg:
+            st.session_state.chat_history.append({"role":"user","content":user_msg})
+            reply = handle_message(user_msg)
+            st.session_state.chat_history.append({"role":"assistant","content":reply})
     else:
-        st.markdown(f"<div class='bot'>{m['content']}</div>", unsafe_allow_html=True)
+        col_a, col_b = st.columns([8,1])
+        with col_a:
+            txt = st.text_input("Ketik pesan...", key="chat_text")
+        with col_b:
+            if st.button("Kirim"):
+                if txt and txt.strip():
+                    st.session_state.chat_history.append({"role":"user","content":txt})
+                    reply = handle_message(txt)
+                    st.session_state.chat_history.append({"role":"assistant","content":reply})
+                    # reset input
+                    st.session_state["chat_text"] = ""
 
-# initial greeting if empty
-if not st.session_state.chat_history:
-    greeting = ("Halo! Perkenalkan nama saya BotVes — asisten edukasi investasi. "
-                "Saya akan membantu merekomendasikan opsi investasi edukatif. "
-                "Untuk memulai, Anda bisa berkata mis. 'Nama ku Okta', 'Tujuan: dana pendidikan jangka panjang', atau 'saham apa yang cocok'.")
-    st.session_state.chat_history.append({'role':'assistant','content':greeting})
-    st.experimental_rerun()
+    if st.button("⟵ Kembali ke Beranda"):
+        st.session_state.page = "home"
 
-# input
-user_text = st.text_input("Ketik pesan Anda...", key="chat_input")
-if st.button("Kirim"):
-    if not user_text or user_text.strip()=="":
-        st.warning("Tolong ketik pesan terlebih dahulu.")
-    else:
-        # append user message
-        st.session_state.chat_history.append({'role':'user','content': user_text})
-        # handle
-        reply = handle_user_message(user_text)
-        st.session_state.chat_history.append({'role':'assistant','content': reply})
-        # immediate render (rerun to reflow)
-        st.experimental_rerun()
-
-# helper info panel
-st.markdown("---")
-st.markdown("**Tips cepat:** ketik `saham apa yang cocok dengan modal 1,2 juta` — BotVes akan langsung menjawab jika modal terdeteksi. Ketik `analisis file` setelah upload file untuk ringkasan portofolio.")
+# main render
+if st.session_state.page == "home":
+    render_home()
+elif st.session_state.page == "login":
+    render_login()
+elif st.session_state.page == "chat":
+    render_chat()
+else:
+    st.session_state.page = "home"
+    render_home()
