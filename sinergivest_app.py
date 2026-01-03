@@ -258,6 +258,64 @@ def compute_stats(series):
     return {"mu":mu, "sigma":sigma, "skew":S, "kurtosis_excess":K, "VaR95":var95, "VaR95_CF":var95_cf, "last": float(s.iloc[-1])}
 
 # -----------------------------
+# Generate descriptive analysis text
+# -----------------------------
+def generate_analysis_text(series, stats, saran):
+    if series is None or stats is None:
+        return "Data tidak cukup untuk analisis."
+    
+    # Analisis Tren
+    first_price = series.iloc[0]
+    last_price = series.iloc[-1]
+    change = (last_price - first_price) / first_price * 100
+    if change > 5:
+        trend = "uptrend"
+        trend_desc = f"Harga saham menunjukkan tren naik dengan peningkatan sebesar {change:.2f}% selama periode observasi."
+    elif change < -5:
+        trend = "downtrend"
+        trend_desc = f"Harga saham menunjukkan tren turun dengan penurunan sebesar {abs(change):.2f}% selama periode observasi."
+    else:
+        trend = "sideways"
+        trend_desc = f"Harga saham cenderung stabil atau sideways dengan perubahan sebesar {change:.2f}% selama periode observasi."
+    
+    # Penjelasan Volatilitas
+    sigma = stats['sigma']
+    if sigma < 0.02:
+        vol_desc = f"Volatilitas harian sebesar {sigma:.4f} tergolong rendah. Ini menunjukkan bahwa harga saham relatif stabil dan risiko fluktuasi harga dalam jangka pendek cukup kecil."
+    elif sigma < 0.05:
+        vol_desc = f"Volatilitas harian sebesar {sigma:.4f} tergolong sedang. Ini menunjukkan bahwa harga saham memiliki fluktuasi yang moderat, yang umum untuk saham di pasar modal."
+    else:
+        vol_desc = f"Volatilitas harian sebesar {sigma:.4f} tergolong tinggi. Ini menunjukkan bahwa harga saham sangat fluktuatif, yang dapat menimbulkan risiko investasi yang lebih besar."
+    
+    # Interpretasi Titik Tertinggi/Terendah
+    max_price = series.max()
+    min_price = series.min()
+    max_desc = f"Harga tertinggi dalam periode ini adalah Rp {max_price:,.0f}, yang mungkin menunjukkan momentum positif atau reaksi pasar terhadap berita baik."
+    min_desc = f"Harga terendah adalah Rp {min_price:,.0f}, yang bisa menjadi area support potensial atau indikasi tekanan jual yang kuat."
+    
+    # Rationale untuk Saran
+    if saran == "Buy":
+        rationale = "Saran 'Buy' diberikan karena harga saat ini berada di bawah rata-rata 30 hari terakhir, menunjukkan potensi undervalued. Dengan volatilitas yang stabil, ini bisa menjadi kesempatan untuk entry dengan risiko yang terkendali."
+    elif saran == "Hold":
+        rationale = "Saran 'Hold' diberikan karena harga saat ini berada dalam kisaran normal relatif terhadap rata-rata 30 hari, tanpa indikasi overvalued yang signifikan. Ini cocok untuk investor yang sudah memiliki posisi."
+    elif saran == "Wait":
+        rationale = "Saran 'Wait' diberikan karena harga saat ini lebih dari 5% di atas rata-rata 30 hari, menunjukkan potensi overvalued. Disarankan menunggu koreksi harga sebelum mempertimbangkan pembelian."
+    else:
+        rationale = "Saran tidak dapat ditentukan dengan data yang tersedia."
+    
+    # Gabungkan narasi
+    analysis = f"""
+    **Analisis Tren:** {trend_desc}
+    
+    **Penjelasan Volatilitas:** {vol_desc}
+    
+    **Interpretasi Titik Ekstrem:** {max_desc} {min_desc} Implikasinya bagi investor adalah penting untuk memantau level-level ini sebagai indikator sentimen pasar.
+    
+    **Rationale untuk Saran '{saran}':** {rationale}
+    
+    *Analisis ini berdasarkan data historis dan metode statistik dasar seperti log-return dan standar deviasi. Bukan nasihat investasi profesional; gunakan sebagai referensi pendidikan.*
+    """
+    return analysis
 # Conversational handler (simple, to-the-point)
 # -----------------------------
 def parse_budget(text):
@@ -444,6 +502,10 @@ def render_home():
                 saran = "Hold"
             st.write(f"Saran: {saran}")
             st.write("*Catatan: Ini analisis sederhana berdasarkan data historis. Bukan nasihat investasi formal. Konsultasikan ahli keuangan.*")
+            # Analisis Deskriptif & Statistik
+            with st.expander("Lihat Analisis Deskriptif & Statistik Mendalam"):
+                analysis = generate_analysis_text(series, stats, saran)
+                st.write(analysis)
         # navigation buttons
         col1, col2 = st.columns(2)
         with col1:
