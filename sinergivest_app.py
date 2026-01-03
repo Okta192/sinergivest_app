@@ -23,32 +23,36 @@ st.markdown("""
 <style>
 /* Header center */
 .header { 
-  text-align:center; 
+  text-align: center; 
   margin-bottom: 20px; 
-  background: #001f3f; /* Navy Blue background for investment theme */
-  padding: 20px; 
-  border-radius: 10px;
+  background: linear-gradient(135deg, #001f3f, #003366); /* Navy Blue gradient for contrast */
+  padding: 30px; 
+  border-radius: 15px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.3); /* Subtle shadow for depth */
 }
 .header h1 { 
   font-size: 50px; 
   margin: 0; 
   color: #ffffff; 
-  font-family: 'Arial', sans-serif; /* Modern, bold font */
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Modern font */
   font-weight: bold;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.5); /* Text shadow for readability */
 }
 .header p { 
-  margin: 0 0 30px 0; 
-  color: #cccccc; 
+  margin: 10px 0 0 0; 
+  color: #e0e0e0; 
+  font-size: 18px;
 }
 
 /* Carousel boxes */
 .carousel-box {
   background: #111217;
-  border-radius: 12px;
-  padding: 18px;
+  border-radius: 15px; /* Softer rounded corners */
+  padding: 20px;
   min-height: 260px;
   color: #fff;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.6); /* Enhanced shadow for 'timbul' effect */
+  border: 1px solid #333; /* Subtle border */
 }
 
 /* Oval buttons */
@@ -58,43 +62,63 @@ st.markdown("""
   font-size: 16px !important;
   font-weight: 600 !important;
   padding: 0 26px !important;
-  transition: background-color 0.3s ease, color 0.3s ease; /* Smooth hover transition */
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2); /* Soft shadow for all buttons */
+  transition: all 0.3s ease; /* Smooth transitions */
 }
 .btn-green > button { background: #2ecc71 !important; color: #fff !important; border: none !important; }
-.btn-green > button:hover { background: #27ae60 !important; }
+.btn-green > button:hover { background: #27ae60 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
 .btn-blue > button { background: #0077be !important; color: #fff !important; border: none !important; }
-.btn-blue > button:hover { background: #005a87 !important; }
+.btn-blue > button:hover { background: #005a87 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
 .btn-white > button { background: #ffffff !important; color: #000000 !important; border: 1px solid #cccccc !important; }
-.btn-white > button:hover { background: #f0f0f0 !important; }
+.btn-white > button:hover { background: #f0f0f0 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
 
 /* Tombol khusus */
 button.start-bot { 
-  background-color: #007bff !important; /* Bright blue for primary action */
+  background-color: #32cd32 !important; /* Traffic Light Green */
   color: white !important; 
   border-radius: 50px !important; 
   border: none !important;
+  font-weight: bold !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
 }
-button.start-bot:hover { background-color: #0056b3 !important; }
+button.start-bot:hover { 
+  background-color: #228b22 !important; /* Darker green on hover */
+  box-shadow: 0 6px 15px rgba(0,0,0,0.3);
+}
 
 button.login { 
-  background-color: transparent !important; /* Outline style for secondary */
-  color: #0077be !important; 
-  border: 2px solid #0077be !important; 
+  background-color: #4b0082 !important; /* Indigo Blue */
+  color: white !important; 
+  border: none !important; 
   border-radius: 50px !important;
+  font-weight: bold !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
 }
-button.login:hover { background-color: #0077be !important; color: white !important; }
+button.login:hover { 
+  background-color: #3a0066 !important; /* Darker indigo on hover */
+  box-shadow: 0 6px 15px rgba(0,0,0,0.3);
+}
 
 button.nav { 
-  background-color: #b0c4de !important; /* Light blue-gray for neutral navigation */
+  background-color: #a9a9a9 !important; /* Neutral modern gray */
   color: white !important; 
-  border: 1px solid #b0c4de !important; 
+  border: 1px solid #a9a9a9 !important; 
   border-radius: 50px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
 }
-button.nav:hover { background-color: #9bb3c7 !important; }
+button.nav:hover { 
+  background-color: #808080 !important; /* Darker gray on hover */
+  box-shadow: 0 6px 15px rgba(0,0,0,0.3);
+}
 
-/* Override for all buttons to ensure oval shape */
+/* Override for all buttons to ensure oval shape and shadow */
 button {
   border-radius: 50px !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2) !important;
+}
+button:hover {
+  box-shadow: 0 6px 15px rgba(0,0,0,0.3) !important;
 }
 
 /* Chat bubbles */
