@@ -65,10 +65,10 @@ st.markdown("""
   box-shadow: 0 4px 10px rgba(0,0,0,0.2); /* Soft shadow for all buttons */
   transition: all 0.3s ease; /* Smooth transitions */
 }
-.btn-green > button { background: #2ecc71 !important; color: #fff !important; border: none !important; }
-.btn-green > button:hover { background: #27ae60 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
-.btn-blue > button { background: #0077be !important; color: #fff !important; border: none !important; }
-.btn-blue > button:hover { background: #005a87 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
+.btn-green > button { background: #00E676 !important; color: #fff !important; border: none !important; }
+.btn-green > button:hover { background: #00C853 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
+.btn-blue > button { background: #ADD8E6 !important; color: #000 !important; border: none !important; }
+.btn-blue > button:hover { background: #87CEEB !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
 .btn-white > button { background: #ffffff !important; color: #000000 !important; border: 1px solid #cccccc !important; }
 .btn-white > button:hover { background: #f0f0f0 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
 
