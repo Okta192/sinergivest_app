@@ -22,9 +22,24 @@ st.set_page_config(page_title="SinergiVest", layout="wide")
 st.markdown("""
 <style>
 /* Header center */
-.header { text-align:center; margin-bottom: 20px; }
-.header h1 { font-size: 50px; margin: 0; color: #ffffff; }
-.header p { margin: 0 0 30px 0; color: #cccccc; }
+.header { 
+  text-align:center; 
+  margin-bottom: 20px; 
+  background: #001f3f; /* Navy Blue background for investment theme */
+  padding: 20px; 
+  border-radius: 10px;
+}
+.header h1 { 
+  font-size: 50px; 
+  margin: 0; 
+  color: #ffffff; 
+  font-family: 'Arial', sans-serif; /* Modern, bold font */
+  font-weight: bold;
+}
+.header p { 
+  margin: 0 0 30px 0; 
+  color: #cccccc; 
+}
 
 /* Carousel boxes */
 .carousel-box {
@@ -43,15 +58,39 @@ st.markdown("""
   font-size: 16px !important;
   font-weight: 600 !important;
   padding: 0 26px !important;
+  transition: background-color 0.3s ease, color 0.3s ease; /* Smooth hover transition */
 }
 .btn-green > button { background: #2ecc71 !important; color: #fff !important; border: none !important; }
+.btn-green > button:hover { background: #27ae60 !important; }
 .btn-blue > button { background: #0077be !important; color: #fff !important; border: none !important; }
+.btn-blue > button:hover { background: #005a87 !important; }
 .btn-white > button { background: #ffffff !important; color: #000000 !important; border: 1px solid #cccccc !important; }
+.btn-white > button:hover { background: #f0f0f0 !important; }
 
 /* Tombol khusus */
-button.start-bot { background-color: #2ecc71 !important; color: white !important; border-radius: 50px !important; }
-button.login { background-color: #0077be !important; color: white !important; border-radius: 50px !important; }
-button.nav { background-color: white !important; color: black !important; border: 1px solid gray !important; border-radius: 50px !important; }
+button.start-bot { 
+  background-color: #007bff !important; /* Bright blue for primary action */
+  color: white !important; 
+  border-radius: 50px !important; 
+  border: none !important;
+}
+button.start-bot:hover { background-color: #0056b3 !important; }
+
+button.login { 
+  background-color: transparent !important; /* Outline style for secondary */
+  color: #0077be !important; 
+  border: 2px solid #0077be !important; 
+  border-radius: 50px !important;
+}
+button.login:hover { background-color: #0077be !important; color: white !important; }
+
+button.nav { 
+  background-color: #b0c4de !important; /* Light blue-gray for neutral navigation */
+  color: white !important; 
+  border: 1px solid #b0c4de !important; 
+  border-radius: 50px !important;
+}
+button.nav:hover { background-color: #9bb3c7 !important; }
 
 /* Override for all buttons to ensure oval shape */
 button {
