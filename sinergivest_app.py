@@ -572,10 +572,12 @@ def render_home():
     with c2:
         b1, b2 = st.columns(2)
         with b1:
-            st.markdown('<div class="btn-oval btn-green">', unsafe_allow_html=True)
-            if st.button("Mulai dengan BotVes"):
-                st.session_state.page = "chat"
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container():
+                st.markdown('<div class="btn-green">', unsafe_allow_html=True)
+                if st.button("Mulai dengan BotVes"):
+                    # logika kamu
+                    pass
+                st.markdown('</div>', unsafe_allow_html=True)
         with b2:
             st.markdown('<div class="btn-oval btn-blue">', unsafe_allow_html=True)
             if st.button("Masuk / Daftar"):
