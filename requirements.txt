@@ -4,6 +4,6 @@ numpy>=1.26
 plotly==6.5.0
 yfinance==0.2.66
 requests==2.32.4
-scipy
+scipy>=1.11
 
 
