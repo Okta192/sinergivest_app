@@ -1,10 +1,11 @@
-# sinergivest_app.py
+﻿# sinergivest_app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import re
 from datetime import datetime
 import plotly.graph_objects as go
+import plotly.express as px
 
 # optional yfinance
 try:
@@ -67,14 +68,14 @@ st.markdown("""
 }
 .btn-green > button { background: #00E676 !important; color: #fff !important; border: none !important; }
 .btn-green > button:hover { background: #00C853 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
-.btn-blue > button { background: #ADD8E6 !important; color: #000 !important; border: none !important; }
+.btn-blue > button { background: #ADD8E6 !important; color: #fff !important; border: none !important; }
 .btn-blue > button:hover { background: #87CEEB !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
 .btn-white > button { background: #ffffff !important; color: #000000 !important; border: 1px solid #cccccc !important; }
 .btn-white > button:hover { background: #f0f0f0 !important; box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
 
 /* Tombol khusus */
 button.start-bot { 
-  background-color: #32cd32 !important; /* Traffic Light Green */
+  background-color: #00E676 !important; /* Traffic Light Green */
   color: white !important; 
   border-radius: 50px !important; 
   border: none !important;
@@ -82,12 +83,12 @@ button.start-bot {
   box-shadow: 0 4px 10px rgba(0,0,0,0.2);
 }
 button.start-bot:hover { 
-  background-color: #228b22 !important; /* Darker green on hover */
+  background-color: #00C853 !important; /* Darker green on hover */
   box-shadow: 0 6px 15px rgba(0,0,0,0.3);
 }
 
 button.login { 
-  background-color: #4b0082 !important; /* Indigo Blue */
+  background-color: #ADD8E6 !important; /* Light Blue */
   color: white !important; 
   border: none !important; 
   border-radius: 50px !important;
@@ -95,7 +96,7 @@ button.login {
   box-shadow: 0 4px 10px rgba(0,0,0,0.2);
 }
 button.login:hover { 
-  background-color: #3a0066 !important; /* Darker indigo on hover */
+  background-color: #87CEEB !important; /* Darker blue on hover */
   box-shadow: 0 6px 15px rgba(0,0,0,0.3);
 }
 
@@ -138,7 +139,7 @@ button:hover {
 # Session state defaults
 # -----------------------------
 if "page" not in st.session_state:
-    st.session_state.page = "home"   # home / chat / login
+    st.session_state.page = "home"   # home / chat / login / portfolio
 if "stock_idx" not in st.session_state:
     st.session_state.stock_idx = 0
 if "edu_idx" not in st.session_state:
@@ -151,9 +152,17 @@ if "user_profile" not in st.session_state:
     st.session_state.user_profile = {
         "name": None, "horizon_years": None, "instruments": [], "risk_pref": None, "budget": None, "expecting_budget": False
     }
+if "portfolio" not in st.session_state:
+    st.session_state.portfolio = []  # list of {"ticker": str, "shares": int, "buy_price": float}
 # simple cache for fetched series
 if "stock_cache" not in st.session_state:
     st.session_state.stock_cache = {}
+
+# Optimasi memori: Batasi ukuran session state untuk mencegah pembengkakan memori
+if len(st.session_state.chat_history) > 50:  # Batasi chat history maksimal 50 pesan
+    st.session_state.chat_history = st.session_state.chat_history[-50:]
+if len(st.session_state.portfolio) > 20:  # Batasi portofolio maksimal 20 saham
+    st.session_state.portfolio = st.session_state.portfolio[-20:]
 
 # sample tickers & OJK videos (YouTube links)
 TICKERS = [
@@ -212,7 +221,49 @@ stock_names = {
     "SMGR.JK": "Semen Indonesia",
     "INDF.JK": "Indofood Sukses Makmur",
     "AMRT.JK": "Alfamart",
-    "BRIS.JK": "Bank Syariah Indonesia"
+    "BRIS.JK": "Bank Syariah Indonesia",
+    # PERTAMBANGAN (Mining)
+    "ADRO.JK": "Adaro Energy",
+    "ITMG.JK": "Indo Tambangraya Megah",
+    "PTBA.JK": "Bukit Asam",
+    "ANTM.JK": "Aneka Tambang",
+    "TINS.JK": "Timah",
+    # OTOMOTIF (Automotive)
+    "ASII.JK": "Astra International",
+    "AUTO.JK": "Astra Otoparts",
+    "IMAS.JK": "Indomobil Sukses Internasional",
+    "SMSM.JK": "Selamat Sempurna",
+    # ASURANSI (Insurance)
+    "ASJT.JK": "Asuransi Jiwa Taspen",
+    "AMAG.JK": "Asuransi Multi Artha Guna",
+    "ASBI.JK": "Asuransi Bintang",
+    "PNIN.JK": "Panin Financial",
+    # PERKEBUNAN (Plantation)
+    "AALI.JK": "Astra Agro Lestari",
+    "LSIP.JK": "PP London Sumatra Indonesia",
+    "BWPT.JK": "BW Plantation",
+    "DSNG.JK": "Dharma Satya Nusantara",
+    # TRANSPORTASI (Transportation)
+    "ASSA.JK": "Adi Sarana Armada",
+    "BIRD.JK": "Blue Bird",
+    "SMDR.JK": "Samudera Indonesia",
+    "TMAS.JK": "Temas"
+}
+
+# Dictionary sektor ke list ticker untuk rekomendasi berdasarkan sektor
+SEKTOR_STOCKS = {
+    "pertambangan": ["ADRO.JK", "ITMG.JK", "PTBA.JK", "ANTM.JK", "TINS.JK"],
+    "otomotif": ["ASII.JK", "AUTO.JK", "IMAS.JK", "SMSM.JK"],
+    "asuransi": ["ASJT.JK", "AMAG.JK", "ASBI.JK", "PNIN.JK"],
+    "perkebunan": ["AALI.JK", "LSIP.JK", "BWPT.JK", "DSNG.JK"],
+    "transportasi": ["ASSA.JK", "BIRD.JK", "SMDR.JK", "TMAS.JK"],
+    "bank": ["BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "BRIS.JK"],  # Tambahan untuk konsistensi
+    "telekomunikasi": ["TLKM.JK"],
+    "konsumer": ["UNTR.JK", "GOTO.JK", "UNVR.JK", "ICBP.JK", "INDF.JK", "AMRT.JK"],
+    "farmasi": ["KLBF.JK", "MDKA.JK"],
+    "energi": ["PGAS.JK"],
+    "infrastruktur": ["CPIN.JK", "JSMR.JK"],
+    "semiconductor": ["SMGR.JK"]
 }
 
 # -----------------------------
@@ -258,6 +309,7 @@ def get_stock_series(ticker, period="1mo", interval="1d"):
 # -----------------------------
 from scipy.stats import norm, skew, kurtosis
 
+@st.cache_data  # Optimasi memori: Cache perhitungan statistik untuk menghindari ulang perhitungan
 def compute_stats(series):
     if series is None or len(series) < 3:
         return None
@@ -282,8 +334,14 @@ def compute_stats(series):
     return {"mu":mu, "sigma":sigma, "skew":S, "kurtosis_excess":K, "VaR95":var95, "VaR95_CF":var95_cf, "last": float(s.iloc[-1])}
 
 # -----------------------------
-# Generate descriptive analysis text
+# Generate Plotly figure for stock series
 # -----------------------------
+@st.cache_data  # Optimasi memori: Cache grafik Plotly untuk menghindari pembuatan ulang setiap render
+def generate_stock_figure(ticker, series):
+    fig = go.Figure(data=[go.Scatter(x=series.index, y=series.values, mode="lines", name=ticker)])
+    fig.update_layout(template="plotly_dark", height=300, margin=dict(t=30,l=10,r=10,b=10))
+    fig.update_xaxes(type='date', tickformat="%Y-%m-%d")
+    return fig
 def generate_analysis_text(series, stats, saran):
     if series is None or stats is None:
         return "Data tidak cukup untuk analisis."
@@ -340,6 +398,55 @@ def generate_analysis_text(series, stats, saran):
     *Analisis ini berdasarkan data historis dan metode statistik dasar seperti log-return dan standar deviasi. Bukan nasihat investasi profesional; gunakan sebagai referensi pendidikan.*
     """
     return analysis
+
+# -----------------------------
+# Fungsi untuk Deep Personalization: Korelasi Dana Kesehatan vs Tabungan Investasi
+# -----------------------------
+def health_investment_correlation(risk_pref, budget):
+    # Saran dana darurat kesehatan berdasarkan profil risiko
+    if risk_pref == "conservative":
+        health_ratio = 0.3  # 30% dari budget untuk dana kesehatan
+        advice = "Dengan pendekatan konservatif, prioritaskan dana kesehatan yang lebih besar untuk mengurangi risiko kesehatan yang dapat mengganggu investasi."
+    elif risk_pref == "aggressive":
+        health_ratio = 0.1  # 10% dari budget
+        advice = "Untuk pendekatan agresif, alokasikan dana kesehatan minimal, tapi pastikan ada buffer untuk risiko kesehatan yang tidak terduga."
+    else:
+        health_ratio = 0.2  # 20% dari budget
+        advice = "Pendekatan seimbang: Alokasikan dana kesehatan yang cukup untuk keseimbangan antara kesehatan dan investasi."
+    
+    health_fund = int(budget * health_ratio)
+    investment_fund = budget - health_fund
+    correlation_note = "Korelasi antara dana kesehatan dan tabungan investasi: Semakin besar dana kesehatan, semakin stabil investasi karena risiko kesehatan berkurang, memungkinkan fokus pada pertumbuhan aset."
+    
+    return f"Dana kesehatan yang disarankan: Rp {health_fund:,} ({health_ratio*100:.0f}% dari modal). Dana investasi tersisa: Rp {investment_fund:,}. {advice} {correlation_note}"
+
+# -----------------------------
+# Fungsi untuk Simulasi Portofolio
+# -----------------------------
+@st.cache_data  # Optimasi memori: Cache simulasi portofolio berdasarkan parameter untuk menghindari perhitungan ulang
+def simulate_portfolio_growth(portfolio, target_return, years):
+    # target_return: annual return, e.g., 0.1 for 10%
+    total_value = 0
+    growth_data = []
+    for item in portfolio:
+        ticker = item["ticker"]
+        shares = item["shares"]
+        buy_price = item["buy_price"]
+        current_price = get_stock_series(ticker).iloc[-1] if get_stock_series(ticker) is not None else buy_price
+        current_value = shares * current_price
+        total_value += current_value
+        # Simple growth simulation: compound annually
+        future_value = current_value * (1 + target_return) ** years
+        growth_data.append({
+            "ticker": ticker,
+            "current_value": current_value,
+            "future_value": future_value,
+            "growth": (future_value - current_value) / current_value * 100
+        })
+    
+    return total_value, growth_data
+
+# -----------------------------
 # Conversational handler (simple, to-the-point)
 # -----------------------------
 def parse_budget(text):
@@ -372,9 +479,33 @@ def parse_risk_preference(text):
     else:
         return "balanced"
 
-def recommend_for_budget(budget, approach="balanced", top_n=3):
+def parse_sektor(text):
+    ml = text.lower()
+    sektor_keywords = {
+        "pertambangan": ["tambang", "mining", "batubara", "emas", "nikel"],
+        "otomotif": ["otomotif", "mobil", "motor", "auto"],
+        "asuransi": ["asuransi", "insurance"],
+        "perkebunan": ["perkebunan", "sawit", "kelapa", "plantation"],
+        "transportasi": ["transportasi", "logistik", "kapal", "transport"],
+        "bank": ["bank", "banking"],
+        "telekomunikasi": ["telekom", "telco", "internet"],
+        "konsumer": ["konsumer", "consumer", "makanan", "minuman"],
+        "farmasi": ["farmasi", "obat", "pharma"],
+        "energi": ["energi", "gas", "minyak"],
+        "infrastruktur": ["infrastruktur", "jalan", "tol"],
+        "semiconductor": ["semikonduktor", "chip"]
+    }
+    for sektor, keywords in sektor_keywords.items():
+        if any(kw in ml for kw in keywords):
+            return sektor
+    return None
+
+@st.cache_data  # Optimasi memori: Cache rekomendasi berdasarkan budget dan approach untuk menghindari perhitungan ulang
+def recommend_for_budget(budget, approach="balanced", top_n=3, sektor=None):
+    # Jika sektor ditentukan, gunakan ticker dari sektor tersebut, else gunakan TICKERS
+    tickers_to_use = SEKTOR_STOCKS.get(sektor.lower(), TICKERS) if sektor else TICKERS
     cand = []
-    for t in TICKERS:
+    for t in tickers_to_use:
         s = get_stock_series(t)
         if s is None or len(s)<5: continue
         last = float(s.iloc[-1])
@@ -412,8 +543,9 @@ def handle_message(msg):
     if b:
         st.session_state.user_profile["budget"] = b
         approach = parse_risk_preference(m)  # Extract from message
+        sektor = parse_sektor(m)  # Extract sektor from message
         st.session_state.user_profile["risk_pref"] = approach
-        recs = recommend_for_budget(b, approach=approach, top_n=3)
+        recs = recommend_for_budget(b, approach=approach, top_n=3, sektor=sektor)
         if recs:
             # Greeting & Confirmation
             greetings = [
@@ -423,6 +555,7 @@ def handle_message(msg):
                 "Wow, semangat investasinya luar biasa!"
             ]
             greeting = np.random.choice(greetings)
+            # Validasi eksplisit: konfirmasi nominal dalam format Rp lengkap
             response = f"{greeting} Dengan modal Rp {b:,} Anda, kita bisa eksplorasi opsi investasi yang sesuai. "
             
             # Strategy Analysis
@@ -437,7 +570,7 @@ def handle_message(msg):
                 target_desc = "keseimbangan return dan risiko"
             response += f"Strategi ini cocok untuk target {target_desc} berdasarkan analisis historis. "
             
-            # Stock Recommendations
+            # Rekomendasi saham
             response += "Berikut rekomendasi saham yang bisa dijangkau:\n"
             for r in recs:
                 company = stock_names.get(r['ticker'], r['ticker'])
@@ -451,6 +584,11 @@ def handle_message(msg):
                     reason = f"karena rasio return terhadap risiko ({r['score']:.4f}) optimal, memberikan keseimbangan yang baik antara pertumbuhan dan keamanan."
                 response += f"- {r['ticker']} ({company}): harga per lembar Rp {per_share:,}, per lot (100 lembar) Rp {per_lot:,}. {reason}\n"
             
+            # Tambahkan saran kesehatan jika relevan
+            if "kesehatan" in ml or "dana darurat" in ml:
+                health_advice = health_investment_correlation(approach, b)
+                response += f"\n{health_advice}"
+            
             # Educational Disclaimer
             response += "\nIni simulasi edukasi berdasarkan data historis, bukan nasihat keuangan. Selalu konsultasikan dengan ahli sebelum berinvestasi."
             return response
@@ -458,8 +596,20 @@ def handle_message(msg):
     # direct ask 'saham apa'
     if "saham apa" in ml or "saham yang cocok" in ml:
         if st.session_state.user_profile.get("budget"):
-            # call handle_message on budget number to reuse logic
-            return handle_message(str(st.session_state.user_profile["budget"]))
+            sektor = parse_sektor(m)
+            approach = st.session_state.user_profile.get("risk_pref", "balanced")
+            recs = recommend_for_budget(st.session_state.user_profile["budget"], approach=approach, top_n=3, sektor=sektor)
+            if recs:
+                response = "Berikut rekomendasi saham yang bisa dijangkau:\n"
+                for r in recs:
+                    company = stock_names.get(r['ticker'], r['ticker'])
+                    per_share = int(r['last'])
+                    per_lot = int(r['lot_price'])
+                    response += f"- {r['ticker']} ({company}): harga per lembar Rp {per_share:,}, per lot (100 lembar) Rp {per_lot:,}.\n"
+                response += "\nIni simulasi edukasi berdasarkan data historis, bukan nasihat keuangan."
+                return response
+            else:
+                return "Tidak ada saham yang cocok dengan modal Anda di sektor tersebut."
         else:
             st.session_state.user_profile["expecting_budget"] = True
             return "Berapa modal Anda (mis. '1,2 juta') supaya saya rekomendasikan saham yang cocok?"
@@ -479,10 +629,17 @@ def handle_message(msg):
         response += f"VaR95 (Cornish-Fisher) adalah {stats['VaR95_CF']:.4f}, sebagai ukuran risiko potensial. "
         response += "Ini adalah analisis edukatif berdasarkan data historis. Untuk investasi nyata, pertimbangkan faktor fundamental perusahaan dan kondisi pasar."
         return response
+    # Deep Personalization: kesehatan
+    if "kesehatan" in ml or "dana darurat" in ml:
+        if st.session_state.user_profile.get("budget") and st.session_state.user_profile.get("risk_pref"):
+            b = st.session_state.user_profile["budget"]
+            approach = st.session_state.user_profile["risk_pref"]
+            return health_investment_correlation(approach, b)
+        else:
+            return "Untuk saran dana kesehatan, sebutkan modal dan preferensi risiko Anda terlebih dahulu (mis. '1 juta konservatif')."
     # basic help
     if any(x in ml for x in ["halo","hai","selamat","cara mulai","bagaimana mulai"]):
-        return ("Halo! Contoh perintah: 'Nama panggilan ...', 'Tujuan: pendidikan jangka panjang', 'saham apa yang cocok', "
-                "'1,2 juta' (untuk modal), atau sebutkan ticker mis. 'BBCA'.")
+        return ("Halo! Contoh perintah: 'Nama panggilan ...', 'Tujuan: pendidikan jangka panjang', 'saham apa yang cocok', '1,2 juta' (untuk modal), atau sebutkan ticker mis. 'BBCA'. Untuk kesehatan: 'dana kesehatan'.")
     # fallback
     return "Maaf saya belum paham. Coba: 'saham apa yang cocok dengan modal 1 juta' atau ketik ticker (mis. BBCA)."
 
@@ -500,19 +657,19 @@ def render_home():
         stock_idx = st.session_state.stock_idx if "stock_idx" in st.session_state else 0
         ticker = TICKERS[stock_idx]
         company_name = TICKER_NAMES.get(ticker, ticker)
-        st.subheader(f"📈 Tren Harga {company_name} ({ticker})")
+        st.subheader(f" Tren Harga {company_name} ({ticker})")
         series = get_stock_series(ticker)
         try:
-            fig = go.Figure(data=[go.Scatter(x=series.index, y=series.values, mode="lines", name=ticker)])
-            fig.update_layout(template="plotly_dark", height=300, margin=dict(t=30,l=10,r=10,b=10))
-            fig.update_xaxes(type='date', tickformat="%Y-%m-%d")
-            st.plotly_chart(fig, use_container_width=True)
+            fig = generate_stock_figure(ticker, series)
+            # Optimasi memori: Nonaktifkan modebar dan fitur interaktif lainnya untuk menghemat memori browser
+            config = {"displayModeBar": False, "displaylogo": False, "modeBarButtonsToRemove": ["pan2d", "select2d", "lasso2d", "resetScale2d"]}
+            st.plotly_chart(fig, use_container_width=True, config=config)
         except Exception as e:
             st.write("Gagal menampilkan grafik:", e)
         # simple stat
         stats = compute_stats(series)
         if stats:
-            st.write(f"Harga terakhir: Rp {stats['last']:,.0f} • Volatilitas: {stats['sigma']:.4f}")
+            st.write(f"Harga terakhir: Rp {stats['last']:,.0f}  Volatilitas: {stats['sigma']:.4f}")
             # Saran berdasarkan perbandingan dengan rata-rata 30 hari
             if len(series) >= 30:
                 mean_30 = series.tail(30).mean()
@@ -534,13 +691,13 @@ def render_home():
         col1, col2 = st.columns(2)
         with col1:
             st.markdown('<div class="btn-oval btn-white">', unsafe_allow_html=True)
-            if st.button("⟨ Prev Saham"):
+            if st.button(" Prev Saham"):
                 st.session_state.stock_idx = (st.session_state.stock_idx - 1) % len(TICKERS)
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         with col2:
             st.markdown('<div class="btn-oval btn-white">', unsafe_allow_html=True)
-            if st.button("Next Saham ⟩"):
+            if st.button("Next Saham "):
                 st.session_state.stock_idx = (st.session_state.stock_idx + 1) % len(TICKERS)
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
@@ -548,7 +705,7 @@ def render_home():
 
     with right:
         st.markdown("<div class='carousel-box'>", unsafe_allow_html=True)
-        st.subheader("🎥 Literasi & Edukasi (OJK)")
+        st.subheader(" Literasi & Edukasi (OJK)")
         vid_idx = st.session_state.edu_idx if "edu_idx" in st.session_state else 0
         video = EDU_VIDEOS[vid_idx]
         # use try/except because some embed may not work in offline env
@@ -559,9 +716,9 @@ def render_home():
         st.write(f"Topik: {video['title']}")
         st.write("Pelajari literasi keuangan dan investasi yang bijak dari OJK untuk pendidikan inklusif.")
         col1, col2 = st.columns(2)
-        if col1.button("⟨ Prev Edu"):
+        if col1.button(" Prev Edu"):
             st.session_state.edu_idx = (st.session_state.edu_idx - 1) % len(EDU_VIDEOS)
-        if col2.button("Next Edu ⟩"):
+        if col2.button("Next Edu "):
             st.session_state.edu_idx = (st.session_state.edu_idx + 1) % len(EDU_VIDEOS)
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -570,18 +727,22 @@ def render_home():
     # bottom oval buttons centered
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
-        b1, b2 = st.columns(2)
+        b1, b2, b3 = st.columns(3)
         with b1:
             with st.container():
                 st.markdown('<div class="btn-green">', unsafe_allow_html=True)
                 if st.button("Mulai dengan BotVes"):
-                    # logika kamu
-                    pass
+                    st.session_state.page = "chat"
                 st.markdown('</div>', unsafe_allow_html=True)
         with b2:
             st.markdown('<div class="btn-oval btn-blue">', unsafe_allow_html=True)
             if st.button("Masuk / Daftar"):
                 st.session_state.page = "login"
+            st.markdown('</div>', unsafe_allow_html=True)
+        with b3:
+            st.markdown('<div class="btn-oval btn-white">', unsafe_allow_html=True)
+            if st.button("Simulasi Portofolio"):
+                st.session_state.page = "portfolio"
             st.markdown('</div>', unsafe_allow_html=True)
 
 def render_login():
@@ -601,14 +762,55 @@ def render_login():
                 st.session_state.user_profile["name"] = user
                 st.session_state.page = "chat"
 
-    if st.button("⟵ Kembali ke Beranda"):
+    if st.button(" Kembali ke Beranda"):
+        st.session_state.page = "home"
+
+def render_portfolio():
+    st.markdown("<div style='text-align:center;'><h2>Simulasi Portofolio</h2></div>", unsafe_allow_html=True)
+    st.write("Simulasi pertumbuhan nilai aset berdasarkan target return tahunan.")
+    
+    # Tambah saham ke portofolio
+    with st.form("add_stock"):
+        ticker = st.selectbox("Pilih Saham", options=list(stock_names.keys()), format_func=lambda x: f"{x} - {stock_names[x]}")
+        shares = st.number_input("Jumlah Saham", min_value=1, value=100)
+        buy_price = st.number_input("Harga Beli per Saham (Rp)", min_value=1.0, value=1000.0)
+        submitted = st.form_submit_button("Tambah ke Portofolio")
+        if submitted:
+            st.session_state.portfolio.append({"ticker": ticker, "shares": shares, "buy_price": buy_price})
+            st.success(f"Ditambahkan: {ticker} ({shares} saham @ Rp {buy_price:,.0f})")
+    
+    # Tampilkan portofolio
+    if st.session_state.portfolio:
+        st.subheader("Portofolio Anda")
+        df_port = pd.DataFrame(st.session_state.portfolio)
+        st.dataframe(df_port)
+        
+        # Simulasi
+        target_return = st.slider("Target Return Tahunan (%)", 0, 50, 10) / 100
+        years = st.slider("Jangka Waktu (Tahun)", 1, 10, 5)
+        if st.button("Simulasi Pertumbuhan"):
+            total_value, growth_data = simulate_portfolio_growth(st.session_state.portfolio, target_return, years)
+            st.write(f"Total Nilai Saat Ini: Rp {total_value:,.0f}")
+            df_growth = pd.DataFrame(growth_data)
+            st.dataframe(df_growth)
+            
+            # Grafik interaktif dengan Plotly
+            fig = px.bar(df_growth, x="ticker", y="future_value", title=f"Estimasi Nilai Portofolio dalam {years} Tahun", labels={"future_value": "Nilai Masa Depan (Rp)", "ticker": "Saham"})
+            fig.update_traces(hovertemplate="Saham: %{x}<br>Nilai: Rp %{y:,.0f}")
+            # Optimasi memori: Nonaktifkan modebar untuk menghemat memori browser
+            config = {"displayModeBar": False, "displaylogo": False}
+            st.plotly_chart(fig, use_container_width=True, config=config)
+    else:
+        st.write("Portofolio kosong. Tambahkan saham terlebih dahulu.")
+    
+    if st.button(" Kembali ke Beranda"):
         st.session_state.page = "home"
 
 def render_chat():
-    st.markdown("<div style='text-align:center;'><h2>🤖 BotVes — Pendamping Investasi</h2></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center;'><h2> BotVes  Pendamping Investasi</h2></div>", unsafe_allow_html=True)
     st.write("Catatan: ini fitur edukatif. Jangan gunakan sebagai nasihat formal.")
     # show uploaded file area inside chat
-    uploaded = st.file_uploader("Unggah file portofolio (.csv/.xlsx) — opsional", type=['csv','xls','xlsx'])
+    uploaded = st.file_uploader("Unggah file portofolio (.csv/.xlsx)  opsional", type=['csv','xls','xlsx'])
     if uploaded:
         try:
             if uploaded.name.lower().endswith('.csv'):
@@ -652,7 +854,7 @@ def render_chat():
                     # reset input
                     st.session_state["chat_text"] = ""
 
-    if st.button("⟵ Kembali ke Beranda"):
+    if st.button(" Kembali ke Beranda"):
         st.session_state.page = "home"
 
 # main render
@@ -660,6 +862,8 @@ if st.session_state.page == "home":
     render_home()
 elif st.session_state.page == "login":
     render_login()
+elif st.session_state.page == "portfolio":
+    render_portfolio()
 elif st.session_state.page == "chat":
     render_chat()
 else:
