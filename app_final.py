@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -35,7 +36,6 @@ try:
     HAS_SCIPY = True
 except Exception:
     HAS_SCIPY = False
-from _sv_features import build_candlestick_chart, fetch_stock_ohlcv, pct_change_color, advice_badge_html
 
 
 st.set_page_config(
@@ -255,7 +255,7 @@ def init_state() -> None:
 def startup_loader() -> None:
     if not st.session_state.startup_done:
         with st.spinner("⏳ Menyinkronkan Data Saham & Geolocation UMKM..."):
-            pass
+            time.sleep(1.35)
         st.session_state.startup_done = True
 
 
@@ -264,15 +264,15 @@ def inject_css() -> None:
         """
         <style>
         :root {
-            --sv-bg: #0a0f1d;
-            --sv-panel: #1e293b;
+            --sv-bg: #071324;
+            --sv-panel: #0d1d33;
             --sv-panel-2: #10243f;
             --sv-line: rgba(151, 177, 214, 0.24);
             --sv-text: #eef6ff;
             --sv-muted: #9eb2cc;
-            --sv-green: #10b981;
-            --sv-cyan: #06b6d4;
-            --sv-gold: #eab308;
+            --sv-green: #1edc8d;
+            --sv-cyan: #38bdf8;
+            --sv-gold: #f5c451;
             --sv-rose: #fb7185;
             --sv-shadow: 0 18px 42px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.04);
         }
@@ -314,7 +314,7 @@ def inject_css() -> None:
                 linear-gradient(145deg, rgba(255,255,255,0.035), rgba(255,255,255,0.008)),
                 var(--sv-panel);
             box-shadow: var(--sv-shadow);
-            border-radius: 12px;
+            border-radius: 8px;
         }
 
         .sv-hero {
@@ -404,17 +404,17 @@ def inject_css() -> None:
 
         .sv-chat-user {
             margin-left: 18%;
-            background: rgba(16,185,129,0.12);
+            background: rgba(56, 189, 248, 0.16);
         }
 
         .sv-chat-bot {
             margin-right: 18%;
-            background: rgba(6,182,212,0.08);
+            background: rgba(30, 220, 141, 0.11);
         }
 
         div[data-testid="stMetric"], div[data-testid="stExpander"], div[data-testid="stDataFrame"],
         div[data-testid="stFileUploader"], div[data-testid="stForm"] {
-            border-radius: 12px;
+            border-radius: 8px;
             box-shadow: var(--sv-shadow);
         }
 
@@ -455,7 +455,7 @@ def inject_css() -> None:
         }
 
         input, textarea, [data-baseweb="select"] {
-            border-radius: 12px !important;
+            border-radius: 8px !important;
         }
 
         hr {
@@ -466,10 +466,6 @@ def inject_css() -> None:
         """,
         unsafe_allow_html=True,
     )
-
-
-# Anti-sleep: periodic JS ping to prevent idle hibernation
-st.markdown("""<script>(function(){var P=55000;function p(){try{fetch(window.location.href,{method:"HEAD",cache:"no-store"}).catch(function(){})}catch(e){}}setInterval(p,P);document.addEventListener("visibilitychange",function(){if(!document.hidden)p()})})();</script>""", unsafe_allow_html=True)
 
 
 def section_heading(text: str) -> None:
@@ -530,7 +526,7 @@ def ordered_umkm_partners() -> list[GreenMSME]:
     return UMKM_PARTNERS
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_stock_close(ticker: str, period: str = "1y") -> pd.Series:
     ticker = ticker.upper().strip()
     if HAS_YFINANCE and yf is not None:
@@ -804,10 +800,10 @@ def funding_growth_chart(df: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         template="plotly_dark",
         height=355,
-        margin=dict(t=12, b=20, l=16, r=16),
+        margin=dict(t=25, b=20, l=16, r=16),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(4,12,24,0.55)",
-        showlegend=False,
+        legend=dict(orientation="h", y=1.07, x=0),
         xaxis=dict(title=None, gridcolor="rgba(151,177,214,0.12)"),
         yaxis=dict(title="Pendanaan (Miliar Rp)", rangemode="tozero", gridcolor="rgba(151,177,214,0.12)"),
         yaxis2=dict(title="UMKM", overlaying="y", side="right", showgrid=False, rangemode="tozero"),
@@ -821,7 +817,6 @@ def render_sidebar() -> None:
         st.caption("Prototype PC/Laptop untuk green financing, saham IDX, dan BotVes.")
         pages = {
             "home": "🏠 Home",
-            "umkm": "🏪 UMKM Hijau",
             "chat": "🤖 BotVes",
             "login": "🔐 Masuk/Daftar",
             "portfolio": "📈 Simulasi Portofolio",
@@ -888,63 +883,20 @@ def render_stock_carousel() -> None:
     sector = next((name for name, tickers in SEKTOR_SAHAM.items() if ticker in tickers), "Sektor IDX")
     series = fetch_stock_close(ticker)
     stats = compute_stock_stats(tuple(series.astype(float).round(6).tolist()))
-    ohlcv = fetch_stock_ohlcv(ticker)
 
     st.markdown('<div class="sv-card">', unsafe_allow_html=True)
-    section_heading(f"Saham Carousel: {company} ({ticker})")
-    st.caption(f"{sector.replace('_', ' ')} | Data OHLCV 1 tahun terakhir")
-
-    # Technical indicator toggles
-    t1, t2, t3, t4 = st.columns(4)
-    show_ma20 = t1.checkbox("MA20", value=True, key="chb_ma20")
-    show_ma50 = t2.checkbox("MA50", value=True, key="chb_ma50")
-    show_bb = t3.checkbox("Bollinger Bands", value=False, key="chb_bb")
-    show_rsi = t4.checkbox("RSI", value=False, key="chb_rsi")
-
-    ohlcv_fig = build_candlestick_chart(ohlcv, ticker, show_ma20=show_ma20, show_ma50=show_ma50, show_bb=show_bb, show_rsi=show_rsi)
-    st.plotly_chart(ohlcv_fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "responsive": True})
+    section_heading(f"📉 Saham Carousel: {company} ({ticker})")
+    st.caption(f"🧩 {sector.replace('_', ' ')} | Data Close 1 tahun terakhir")
+    st.plotly_chart(stock_line_chart(ticker, series), use_container_width=True, config={"displayModeBar": False})
 
     if stats:
-        # KPI metric cards with dynamic colors and advice badges
-        last = stats["last"]
-        advice = stats.get("advice", "Hold")
-        prev_close = float(ohlcv["Close"].iloc[-2]) if len(ohlcv) >= 2 else last
-        change_pct = ((last - prev_close) / prev_close * 100) if prev_close else 0
-        volume = int(ohlcv["Volume"].iloc[-1]) if "Volume" in ohlcv.columns else 0
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Harga Close", rupiah(stats["last"]))
+        c2.metric("Log-Return Harian", percent(stats["mu"], 3))
+        c3.metric("Volatilitas", percent(stats["sigma"], 2))
+        c4.metric("VaR 95% CF", percent(stats["var95_cf"], 2))
 
-        arrow = "<span style='color:#10b981'>▲</span>" if change_pct > 0 else "<span style='color:#ef4444'>▼</span>" if change_pct < 0 else "—"
-        pct_color = "#10b981" if change_pct > 0 else "#ef4444" if change_pct < 0 else "#94a3b8"
-
-        # Advice badge HTML from _sv_features
-        badge = advice_badge_html(advice)
-
-        kpi_html = f"""
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
-            <div class="sv-metric">
-                <small>HARGA CLOSE</small>
-                <strong>{rupiah(last)}</strong>
-                <span>{arrow} {abs(change_pct):.2f}% vs prev</span>
-            </div>
-            <div class="sv-metric">
-                <small>PERUBAHAN HARIAN</small>
-                <strong style="color:{pct_color}">{change_pct:+.2f}%</strong>
-                <span>prev close {rupiah(prev_close)}</span>
-            </div>
-            <div class="sv-metric">
-                <small>VOLUME</small>
-                <strong style="color:#06b6d4">{volume:,}</strong>
-                <span>Jumlah lembar</span>
-            </div>
-            <div class="sv-metric">
-                <small>SINYAL</small>
-                <strong>{badge}</strong>
-                <span>VaR95 CF: {percent(stats['var95_cf'])}</span>
-            </div>
-        </div>
-        """
-        st.markdown(kpi_html, unsafe_allow_html=True)
-
-        with st.expander("Analisis Statistik & Saran MA30", expanded=False):
+        with st.expander("🧠 Analisis Statistik & Saran MA30", expanded=False):
             st.write(stock_advice_narrative(ticker, stats))
             st.write(
                 f"MA30 saat ini {rupiah(stats['ma30'])}. Skewness {stats['skewness']:.3f}, "
@@ -954,10 +906,10 @@ def render_stock_carousel() -> None:
         st.warning("Data belum cukup untuk analisis statistik.")
 
     prev_col, next_col = st.columns(2, gap="small")
-    if prev_col.button("Prev Saham", key="prev_stock"):
+    if prev_col.button("⬅ Prev Saham", key="prev_stock"):
         st.session_state.stock_idx = (st.session_state.stock_idx - 1) % len(ALL_TICKERS)
         st.rerun()
-    if next_col.button("Next Saham", key="next_stock"):
+    if next_col.button("Next Saham ➡", key="next_stock"):
         st.session_state.stock_idx = (st.session_state.stock_idx + 1) % len(ALL_TICKERS)
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
@@ -1019,10 +971,10 @@ def render_esg_panel() -> None:
     section_heading(f"🧪 ESG Panel: {umkm.name}")
     gauge_col, bar_col = st.columns([1, 1.12], gap="small")
     with gauge_col:
-        st.plotly_chart(esg_gauge(umkm.esg_score), use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "responsive": True})
+        st.plotly_chart(esg_gauge(umkm.esg_score), use_container_width=True, config={"displayModeBar": False})
         st.info(f"Status risiko: {umkm.risk_label}")
     with bar_col:
-        st.plotly_chart(esg_breakdown_chart(umkm), use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "responsive": True})
+        st.plotly_chart(esg_breakdown_chart(umkm), use_container_width=True, config={"displayModeBar": False})
         st.caption("Skor mockup: Lingkungan 40%, Sosial 30%, Tata Kelola 30%.")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1042,96 +994,11 @@ def render_bottom_navigation() -> None:
             st.session_state.page = "portfolio"
             st.rerun()
         if c4.button("🏪 UMKM", key="nav_umkm_focus"):
-            st.session_state.page = "umkm"
+            st.session_state.umkm_idx = 0
             st.rerun()
         if c5.button("🏠 Home", key="nav_home"):
             st.session_state.page = "home"
             st.rerun()
-
-
-def render_umkm_directory() -> None:
-    st.markdown('<div class="sv-card">', unsafe_allow_html=True)
-    section_heading("🏪 Direktori UMKM Hijau")
-    st.caption("Eksplorasi seluruh mitra UMKM hijau, filter berdasarkan sektor atau provinsi, dan tambahkan ke portofolio.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # --- Filter bar ---
-    f1, f2, f3 = st.columns([1.2, 1.2, 0.8])
-    all_sectors = sorted({p.sector for p in UMKM_PARTNERS})
-    all_provinces = sorted({p.province for p in UMKM_PARTNERS})
-    with f1:
-        filter_sector = st.selectbox("🔎 Filter Sektor", ["Semua"] + all_sectors, key="umkm_dir_sector")
-    with f2:
-        filter_province = st.selectbox("📍 Filter Provinsi", ["Semua"] + all_provinces, key="umkm_dir_province")
-    with f3:
-        search_query = st.text_input("🔍 Cari nama", placeholder="Ketik nama UMKM...", key="umkm_dir_search")
-
-    # --- Apply filters ---
-    filtered = UMKM_PARTNERS[:]
-    if filter_sector != "Semua":
-        filtered = [p for p in filtered if p.sector == filter_sector]
-    if filter_province != "Semua":
-        filtered = [p for p in filtered if p.province == filter_province]
-    if search_query.strip():
-        q = search_query.strip().lower()
-        filtered = [p for p in filtered if q in p.name.lower()]
-
-    if not filtered:
-        st.info("Tidak ada UMKM yang cocok dengan filter yang dipilih.")
-    else:
-        st.caption(f"Menampilkan {len(filtered)} dari {len(UMKM_PARTNERS)} mitra UMKM")
-
-    # --- UMKM cards in 2-column grid ---
-    for idx in range(0, len(filtered), 2):
-        row_items = filtered[idx : idx + 2]
-        cols = st.columns(2, gap="medium")
-        for col, umkm in zip(cols, row_items):
-            with col:
-                esg = umkm.esg_score
-                risk_color = "#10b981" if esg >= 85 else "#eab308" if esg >= 76 else "#fb7185"
-                st.markdown(
-                    f"""
-                    <div class="sv-card" style="margin-bottom:8px;">
-                        <h4 style="margin:0 0 4px 0;">{umkm.name}</h4>
-                        <p class="sv-muted" style="margin:0 0 6px 0;">{umkm.sector} | {umkm.location}</p>
-                        <p style="margin:0 0 8px 0;font-size:0.92rem;">{umkm.impact}</p>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:0.88rem;">
-                            <span><strong>Dana:</strong> {rupiah(umkm.funding_need)}</span>
-                            <span><strong>Yield:</strong> {umkm.target_yield:.1f}% p.a.</span>
-                            <span><strong>Tenor:</strong> {umkm.tenor_months} bulan</span>
-                            <span><strong>Risiko:</strong> <span style="color:{risk_color}">{umkm.risk_label}</span></span>
-                        </div>
-                        <div style="margin-top:8px;font-size:0.85rem;">
-                            <span style="color:#10b981;font-weight:700;">E:{umkm.environmental_score}</span> &nbsp;
-                            <span style="color:#38bdf8;font-weight:700;">S:{umkm.social_score}</span> &nbsp;
-                            <span style="color:#eab308;font-weight:700;">G:{umkm.governance_score}</span> &nbsp;
-                            <span style="color:var(--sv-text);font-weight:700;">Total:{esg}</span>
-                        </div>
-                        <div style="margin-top:6px;font-size:0.85rem;color:var(--sv-muted);">
-                            <strong>Use of Funds:</strong> {umkm.use_of_funds}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                # Danai button
-                if st.button(f"💰 Danai {umkm.name}", key=f"danai_{umkm.name}"):
-                    st.session_state.portfolio.append(
-                        {
-                            "Ticker": f"UMKM-{umkm.name[:8].upper()}",
-                            "Nama": umkm.name,
-                            "Saham": 1,
-                            "Harga": umkm.funding_need,
-                            "Nilai": umkm.funding_need,
-                        }
-                    )
-                    st.success(f"{umkm.name} ditambahkan ke portofolio simulasi ({rupiah(umkm.funding_need)}).")
-
-    # --- Back button ---
-    st.markdown("---")
-    if st.button("🏠 Kembali ke Beranda", key="umkm_dir_back"):
-        st.session_state.page = "home"
-        st.rerun()
 
 
 def render_home() -> None:
@@ -1152,7 +1019,7 @@ def render_home() -> None:
 
     st.markdown('<div class="sv-card">', unsafe_allow_html=True)
     section_heading("📊 Tren Pendanaan & Pertumbuhan UMKM")
-    st.plotly_chart(funding_growth_chart(build_funding_timeseries()), use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "responsive": True})
+    st.plotly_chart(funding_growth_chart(build_funding_timeseries()), use_container_width=True, config={"displayModeBar": False})
     st.markdown("</div>", unsafe_allow_html=True)
 
     render_bottom_navigation()
@@ -1230,7 +1097,7 @@ def render_portfolio() -> None:
             xaxis_title="Tahun",
             yaxis_title="Nilai Masa Depan",
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False, "responsive": True})
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
         c1, c2 = st.columns(2)
         if c1.button("🧹 Kosongkan Portofolio"):
@@ -1297,7 +1164,7 @@ def parse_sector(text: str) -> str | None:
     return None
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def recommend_for_budget(budget: int, risk_pref: str = "balanced", sector: str | None = None, top_n: int = 3) -> list[dict[str, Any]]:
     tickers = SEKTOR_SAHAM.get(sector, ALL_TICKERS) if sector else ALL_TICKERS
     candidates: list[dict[str, Any]] = []
@@ -1552,8 +1419,6 @@ def main() -> None:
 
     if st.session_state.page == "home":
         render_home()
-    elif st.session_state.page == "umkm":
-        render_umkm_directory()
     elif st.session_state.page == "portfolio":
         render_portfolio()
     elif st.session_state.page == "chat":
